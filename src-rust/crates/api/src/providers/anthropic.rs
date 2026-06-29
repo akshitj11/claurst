@@ -325,6 +325,13 @@ impl LlmProvider for AnthropicProvider {
         let anthropic_id = ProviderId::new(ProviderId::ANTHROPIC);
         Ok(vec![
             ModelInfo {
+                id: ModelId::new("claude-opus-4-8"),
+                provider_id: anthropic_id.clone(),
+                name: "Claude Opus 4.8".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 32_000,
+            },
+            ModelInfo {
                 id: ModelId::new("claude-opus-4-6"),
                 provider_id: anthropic_id.clone(),
                 name: "Claude Opus 4.6".to_string(),

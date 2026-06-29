@@ -766,6 +766,13 @@ impl LlmProvider for BedrockProvider {
     async fn list_models(&self) -> Result<Vec<ModelInfo>, ProviderError> {
         Ok(vec![
             ModelInfo {
+                id: ModelId::new("anthropic.claude-opus-4-8"),
+                provider_id: self.id.clone(),
+                name: "Claude Opus 4.8 (Bedrock)".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 32_000,
+            },
+            ModelInfo {
                 id: ModelId::new("anthropic.claude-opus-4-6"),
                 provider_id: self.id.clone(),
                 name: "Claude Opus 4.6 (Bedrock)".to_string(),
