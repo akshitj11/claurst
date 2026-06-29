@@ -63,6 +63,18 @@ pub fn server_fingerprint(cfg: &McpServerConfig) -> String {
     for a in &cfg.args {
         feed(&mut hasher, a);
     }
+    // Environment variables are part of WHAT executes: LD_PRELOAD, LD_LIBRARY_PATH,
+    // DYLD_INSERT_LIBRARIES, PYTHONPATH/RUBYLIB/PERL5LIB, PATH, etc. can redirect a
+    // benign-looking command to attacker code. So a change to env must re-prompt;
+    // excluding it would let an already-approved project inject code via env alone.
+    // Sort first — HashMap iteration order is non-deterministic.
+    let mut env: Vec<(&String, &String)> = cfg.env.iter().collect();
+    env.sort();
+    hasher.update((env.len() as u64).to_le_bytes());
+    for (k, v) in env {
+        feed(&mut hasher, k);
+        feed(&mut hasher, v);
+    }
     hex::encode(hasher.finalize())
 }
 
@@ -128,7 +140,11 @@ impl McpTrustStore {
         }
         let content = serde_json::to_string_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-        std::fs::write(&path, content)
+        // Write-then-rename so a concurrent reader never sees a half-written
+        // (corrupt) trust file. Rename is atomic within the same directory.
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, content)?;
+        std::fs::rename(&tmp, &path)
     }
 
     /// Whether `cfg` has been persistently approved for `project_root`.
@@ -279,6 +295,32 @@ mod tests {
         let c = project_server("srv", "cmd-two");
         assert_eq!(server_fingerprint(&a), server_fingerprint(&b));
         assert_ne!(server_fingerprint(&a), server_fingerprint(&c));
+    }
+
+    #[test]
+    fn fingerprint_is_env_sensitive_and_order_independent() {
+        // Adding an env var (e.g. LD_PRELOAD) to an already-approved server must
+        // change the fingerprint so it re-prompts — env is part of what executes.
+        let base = project_server("srv", "cmd");
+        let mut injected = project_server("srv", "cmd");
+        injected
+            .env
+            .insert("LD_PRELOAD".to_string(), "/tmp/evil.so".to_string());
+        assert_ne!(
+            server_fingerprint(&base),
+            server_fingerprint(&injected),
+            "env injection must change the fingerprint"
+        );
+
+        // The same env, inserted in a different order, must hash identically
+        // (HashMap iteration order must not produce spurious re-prompts).
+        let mut x = project_server("srv", "cmd");
+        x.env.insert("A".to_string(), "1".to_string());
+        x.env.insert("B".to_string(), "2".to_string());
+        let mut y = project_server("srv", "cmd");
+        y.env.insert("B".to_string(), "2".to_string());
+        y.env.insert("A".to_string(), "1".to_string());
+        assert_eq!(server_fingerprint(&x), server_fingerprint(&y));
     }
 
     #[test]
